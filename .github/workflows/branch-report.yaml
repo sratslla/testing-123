@@ -4,15 +4,12 @@ on:
   schedule:
     - cron: '0 0 * * *'  # Runs daily at midnight
   workflow_dispatch:  # Allows manual triggering
-  pull_request:
 
 jobs:
   track-branches:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pages: write
-      id-token: write
 
     steps:
       - name: Checkout repository
@@ -76,7 +73,7 @@ jobs:
           excel_file = "branch_info.xlsx"
           df.to_excel(excel_file, index=False)
           
-          # Create markdown table manually instead of using to_markdown
+          # Create markdown table manually
           markdown_table = "# Branch Information\n\n"
           markdown_table += "Download the [Branch Information Excel File](branch_info.xlsx)\n\n"
           markdown_table += "| " + " | ".join(df.columns) + " |\n"
@@ -87,9 +84,6 @@ jobs:
           
           with open("branch_info.md", "w") as f:
               f.write(markdown_table)
-          
-          print(f"::set-output name=excel_file::{excel_file}")
-          print(f"::set-output name=markdown_file::branch_info.md")
           EOF
 
       - name: Setup Git Identity
@@ -100,11 +94,8 @@ jobs:
       - name: Commit files
         run: |
           git add branch_info.xlsx branch_info.md
-          git commit -m "Update branch information [skip ci]"
-          git push
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v3
+          git commit -m "Update branch information [skip ci]" || echo "No changes to commit"
+          git push || echo "No changes to push"
 
       - name: Upload branch info to wiki
         env:
@@ -113,14 +104,20 @@ jobs:
           # Clone the wiki repository
           REPO_URL=$(echo $GITHUB_REPOSITORY | sed 's/^/https:\/\/github.com\//')
           WIKI_URL="${REPO_URL}.wiki.git"
-          git clone $WIKI_URL wiki
           
-          # Copy the files to the wiki
-          cp branch_info.xlsx wiki/
-          cp branch_info.md wiki/Branch-Information.md
+          # Try to clone the wiki, but don't fail if it doesn't exist
+          git clone $WIKI_URL wiki || echo "Wiki repository not found. Make sure Wiki is enabled for this repository."
           
-          # Push to the wiki
-          cd wiki
-          git add Branch-Information.md branch_info.xlsx
-          git commit -m "Update branch information"
-          git push
+          if [ -d "wiki" ]; then
+            # Copy the files to the wiki
+            cp branch_info.xlsx wiki/
+            cp branch_info.md wiki/Branch-Information.md
+            
+            # Push to the wiki
+            cd wiki
+            git add Branch-Information.md branch_info.xlsx
+            git commit -m "Update branch information" || echo "No changes to commit"
+            git push || echo "Failed to push to wiki. Check permissions."
+          else
+            echo "Wiki directory not found. Please enable Wiki in repository settings."
+          fi
