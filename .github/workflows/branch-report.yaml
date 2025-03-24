@@ -33,7 +33,7 @@ jobs:
       - name: Collect branch information
         id: collect-info
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.TESTING_PUSH_123 }}
         run: |
           python - << EOF
           import os
@@ -108,7 +108,7 @@ jobs:
 
       - name: Upload branch info to wiki
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.TESTING_PUSH_123 }}
         run: |
           # Clone the wiki repository
           REPO_URL=$(echo $GITHUB_REPOSITORY | sed 's/^/https:\/\/github.com\//')
