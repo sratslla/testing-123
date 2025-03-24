@@ -1,38 +1,126 @@
-name: Generate Branch Report
+name: Branch Tracker
 
 on:
   schedule:
-    - cron: "0 0 * * *"  # Runs daily at midnight
+    - cron: '0 0 * * *'  # Runs daily at midnight
   workflow_dispatch:  # Allows manual triggering
+  pull_request:
 
 jobs:
-  generate-report:
+  track-branches:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # Fetch all history
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
 
       - name: Install dependencies
-        run: pip install pandas openpyxl requests
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas openpyxl markdown PyGithub tabulate
 
-      - name: Generate Branch Report
+      - name: Collect branch information
+        id: collect-info
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO_NAME: ${{ github.repository }}
-        run: python .github/scripts/generate_branch_report.py
-
-      - name: Commit and push Excel report
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add branches.xlsx
-          git commit -m "Updated branch report"
+          python - << EOF
+          import os
+          import pandas as pd
+          from github import Github
+          from datetime import datetime
+
+          # Initialize GitHub client
+          g = Github(os.environ['GITHUB_TOKEN'])
+          repo = g.get_repo(os.environ['GITHUB_REPOSITORY'])
+
+          # Get all branches
+          branches = list(repo.get_branches())
+          
+          # Get commits for each branch to find creation date and last update
+          branch_data = []
+          for branch in branches:
+              commits = list(repo.get_commits(sha=branch.name))
+              last_commit = commits[0]
+              first_commit = commits[-1] if commits else None
+              
+              # Try to get the author information
+              try:
+                  if last_commit.author:
+                      author_login = last_commit.author.login
+                  else:
+                      author_login = last_commit.commit.author.name
+              except:
+                  author_login = "Unknown"
+              
+              branch_data.append({
+                  'Branch Name': branch.name,
+                  'Owner': author_login,
+                  'Last Updated': last_commit.commit.author.date.strftime('%Y-%m-%d %H:%M:%S') if last_commit else "N/A",
+                  'Created At': first_commit.commit.author.date.strftime('%Y-%m-%d %H:%M:%S') if first_commit else "N/A"
+              })
+          
+          # Create DataFrame and save to Excel
+          df = pd.DataFrame(branch_data)
+          excel_file = "branch_info.xlsx"
+          df.to_excel(excel_file, index=False)
+          
+          # Create markdown table manually instead of using to_markdown
+          markdown_table = "# Branch Information\n\n"
+          markdown_table += "Download the [Branch Information Excel File](branch_info.xlsx)\n\n"
+          markdown_table += "| " + " | ".join(df.columns) + " |\n"
+          markdown_table += "|" + "---|" * len(df.columns) + "\n"
+          
+          for _, row in df.iterrows():
+              markdown_table += "| " + " | ".join(str(item) for item in row.values) + " |\n"
+          
+          with open("branch_info.md", "w") as f:
+              f.write(markdown_table)
+          
+          print(f"::set-output name=excel_file::{excel_file}")
+          print(f"::set-output name=markdown_file::branch_info.md")
+          EOF
+
+      - name: Setup Git Identity
+        run: |
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@github.com"
+
+      - name: Commit files
+        run: |
+          git add branch_info.xlsx branch_info.md
+          git commit -m "Update branch information [skip ci]"
           git push
 
-      - name: Push report to GitHub Wiki
+      - name: Setup Pages
+        uses: actions/configure-pages@v3
+
+      - name: Upload branch info to wiki
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO_NAME: ${{ github.repository }}
-        run: python .github/scripts/update_wiki.py
+        run: |
+          # Clone the wiki repository
+          REPO_URL=$(echo $GITHUB_REPOSITORY | sed 's/^/https:\/\/github.com\//')
+          WIKI_URL="${REPO_URL}.wiki.git"
+          git clone $WIKI_URL wiki
+          
+          # Copy the files to the wiki
+          cp branch_info.xlsx wiki/
+          cp branch_info.md wiki/Branch-Information.md
+          
+          # Push to the wiki
+          cd wiki
+          git add Branch-Information.md branch_info.xlsx
+          git commit -m "Update branch information"
+          git push
