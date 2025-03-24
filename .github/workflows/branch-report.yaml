@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pandas openpyxl markdown PyGithub
+          pip install pandas openpyxl markdown PyGithub tabulate
 
       - name: Collect branch information
         id: collect-info
@@ -76,10 +76,14 @@ jobs:
           excel_file = "branch_info.xlsx"
           df.to_excel(excel_file, index=False)
           
-          # Create markdown table
+          # Create markdown table manually instead of using to_markdown
           markdown_table = "# Branch Information\n\n"
           markdown_table += "Download the [Branch Information Excel File](branch_info.xlsx)\n\n"
-          markdown_table += df.to_markdown(index=False)
+          markdown_table += "| " + " | ".join(df.columns) + " |\n"
+          markdown_table += "|" + "---|" * len(df.columns) + "\n"
+          
+          for _, row in df.iterrows():
+              markdown_table += "| " + " | ".join(str(item) for item in row.values) + " |\n"
           
           with open("branch_info.md", "w") as f:
               f.write(markdown_table)
